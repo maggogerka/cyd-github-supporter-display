@@ -24,7 +24,9 @@ void Application::begin() {
         "verify the board variant and rotation");
   }
 
-  avatarCache_.begin();
+  if (avatarCache_.begin()) {
+    profileStore_.load(profiles_, lastUpdatedAt_);
+  }
   delay(900);
   display_.showProgress("Display OK", "Starting network");
   network_.begin();
@@ -129,19 +131,29 @@ void Application::transition(State nextState) {
 }
 
 void Application::enterRetry(const String& title, const String& detail) {
-  github_.reset();
   retryTitle_ = title;
   retryDetail_ = detail;
-  const uint32_t delayMs = retry_.schedule(millis());
+  uint32_t minimumDelayMs = 0;
+  if (github_.rateLimitRemaining() == 0) {
+    const time_t now = time(nullptr);
+    const time_t reset = github_.rateLimitReset();
+    if (now > 0 && reset > now && reset - now <= 2 * 60 * 60) {
+      minimumDelayMs =
+          static_cast<uint32_t>(reset - now + 5) * 1000UL;
+      retryDetail_ = "Rate limit reached; showing cached cards";
+    }
+  }
+  github_.reset();
+  const uint32_t delayMs = retry_.schedule(millis(), minimumDelayMs);
   Serial.printf("[app] Retry scheduled in %u ms: %s / %s\n", delayMs,
-                title.c_str(), detail.c_str());
+                retryTitle_.c_str(), retryDetail_.c_str());
 
   if (!profiles_.empty()) {
     transition(State::OFFLINE_CACHE);
     showCurrentFollower(true);
   } else {
     transition(State::ERROR_RETRY);
-    display_.showError(title, detail, delayMs / 1000);
+    display_.showError(retryTitle_, retryDetail_, delayMs / 1000);
     lastRetryScreenAtMs_ = millis();
   }
 }
@@ -198,6 +210,7 @@ void Application::finishGitHubRefresh() {
   lastUpdatedAt_ = time(nullptr);
   lastRefreshAtMs_ = millis();
   retry_.reset();
+  profileStore_.save(profiles_, lastUpdatedAt_);
 
   Serial.printf(
       "[app] Refresh committed: %u profiles, first-page-limited=%s, "

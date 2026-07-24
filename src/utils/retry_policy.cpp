@@ -10,9 +10,10 @@ void RetryPolicy::reset() {
   nextAttemptAtMs_ = 0;
 }
 
-uint32_t RetryPolicy::schedule(uint32_t nowMs) {
-  const uint32_t delayMs =
+uint32_t RetryPolicy::schedule(uint32_t nowMs, uint32_t minimumDelayMs) {
+  const uint32_t backoffMs =
       core::retryDelay(attempt_, initialDelayMs_, maximumDelayMs_);
+  const uint32_t delayMs = max(backoffMs, minimumDelayMs);
   if (attempt_ < UINT8_MAX) {
     ++attempt_;
   }

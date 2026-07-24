@@ -20,6 +20,7 @@ TFT_eSPI* gTft = nullptr;
 int16_t gImageX = 0;
 int16_t gImageY = 0;
 PNG gPng;
+JPEGDEC gJpeg;
 File gPngFile;
 File gJpegFile;
 uint16_t gPngLine[320];
@@ -45,6 +46,7 @@ int drawJpegBlock(JPEGDRAW* block) {
                       block->pPixels + row * block->iWidth);
     }
   }
+  yield();
   return 1;
 }
 
@@ -103,6 +105,7 @@ int drawPngLine(PNGDRAW* line) {
   const int width = min(line->iWidth, config::kAvatarSize);
   gPng.getLineAsRGB565(line, gPngLine, PNG_RGB565_BIG_ENDIAN, 0x161B22);
   gTft->pushImage(gImageX, gImageY + line->y, width, 1, gPngLine);
+  yield();
   return 1;
 }
 }  // namespace
@@ -204,7 +207,6 @@ void DisplayManager::showEmpty(bool connected, time_t updatedAt) {
 void DisplayManager::showFollower(const FollowerProfile& profile, size_t index,
                                   size_t total, bool connected, bool offline,
                                   time_t updatedAt, AvatarCache& cache) {
-  tft_.startWrite();
   tft_.fillScreen(background_);
   drawHeader(connected, offline, index + 1, total);
   tft_.fillRoundRect(8, 31, 304, 169, 12, surface_);
@@ -239,7 +241,6 @@ void DisplayManager::showFollower(const FollowerProfile& profile, size_t index,
   tft_.drawString("Thank you for supporting my projects!", 160, 184, 2);
   tft_.setTextDatum(TL_DATUM);
   drawFooter(updatedAt);
-  tft_.endWrite();
 }
 
 bool DisplayManager::drawAvatar(const String& path, AvatarCache::Format format,
@@ -248,32 +249,52 @@ bool DisplayManager::drawAvatar(const String& path, AvatarCache::Format format,
   gImageX = x;
   gImageY = y;
   bool drawn = false;
+  const uint32_t startedAtMs = millis();
+  Serial.printf("[display] Decoding avatar %s (format=%u), free heap=%u\n",
+                path.c_str(), static_cast<unsigned>(format),
+                ESP.getFreeHeap());
 
   if (format == AvatarCache::Format::Jpeg) {
-    JPEGDEC jpeg;
-    if (jpeg.open(path.c_str(), openJpegFile, closeJpegFile, readJpegFile,
-                  seekJpegFile, drawJpegBlock)) {
+    if (gJpeg.open(path.c_str(), openJpegFile, closeJpegFile, readJpegFile,
+                   seekJpegFile, drawJpegBlock)) {
       int options = 0;
-      if (jpeg.getWidth() > config::kAvatarSize * 4) {
+      if (gJpeg.getWidth() > config::kAvatarSize * 4) {
         options = JPEG_SCALE_EIGHTH;
-      } else if (jpeg.getWidth() > config::kAvatarSize * 2) {
+      } else if (gJpeg.getWidth() > config::kAvatarSize * 2) {
         options = JPEG_SCALE_QUARTER;
-      } else if (jpeg.getWidth() > config::kAvatarSize) {
+      } else if (gJpeg.getWidth() > config::kAvatarSize) {
         options = JPEG_SCALE_HALF;
       }
-      drawn = jpeg.decode(0, 0, options) != 0;
-      jpeg.close();
+      drawn = gJpeg.decode(0, 0, options) != 0;
+      gJpeg.close();
     }
   } else if (format == AvatarCache::Format::Png) {
     const int result = gPng.open(path.c_str(), openPngFile, closePngFile,
                                  readPngFile, seekPngFile, drawPngLine);
-    if (result == PNG_SUCCESS && gPng.getWidth() <= 320) {
-      drawn = gPng.decode(nullptr, 0) == PNG_SUCCESS;
+    Serial.printf(
+        "[display] PNG open=%d, size=%dx%d, bpp=%d, type=%d, error=%d\n",
+        result, result == PNG_SUCCESS ? gPng.getWidth() : 0,
+        result == PNG_SUCCESS ? gPng.getHeight() : 0,
+        result == PNG_SUCCESS ? gPng.getBpp() : 0,
+        result == PNG_SUCCESS ? gPng.getPixelType() : 0,
+        gPng.getLastError());
+    if (result == PNG_SUCCESS) {
+      if (gPng.getWidth() <= 320 && gPng.getHeight() <= 320) {
+        const int decodeResult = gPng.decode(nullptr, 0);
+        drawn = decodeResult == PNG_SUCCESS;
+        Serial.printf("[display] PNG decode=%d, error=%d\n", decodeResult,
+                      gPng.getLastError());
+      } else {
+        Serial.println("[display] PNG dimensions exceed the safe limit");
+      }
       gPng.close();
     }
   }
 
   gTft = nullptr;
+  Serial.printf("[display] Avatar decode %s in %u ms, free heap=%u\n",
+                drawn ? "OK" : "failed", millis() - startedAtMs,
+                ESP.getFreeHeap());
   return drawn;
 }
 

@@ -207,11 +207,16 @@ void AvatarCache::prune(const FollowerProfiles& currentProfiles) {
   File entry;
   while ((entry = directory.openNextFile())) {
     const String name = entry.name();
-    const bool temporary = name.endsWith(".tmp");
+    const String fullPath =
+        name.startsWith("/") ? name : String("/avatars/") + name;
+    const bool temporary = fullPath.endsWith(".tmp");
     entry.close();
-    if (temporary || !isCurrentAvatar(name, currentProfiles)) {
-      Serial.printf("[cache] Removing stale file %s\n", name.c_str());
-      LittleFS.remove(name);
+    if (temporary || !isCurrentAvatar(fullPath, currentProfiles)) {
+      Serial.printf("[cache] Removing stale file %s\n", fullPath.c_str());
+      if (!LittleFS.remove(fullPath)) {
+        Serial.printf("[cache] WARNING: could not remove %s\n",
+                      fullPath.c_str());
+      }
     }
   }
   directory.close();
@@ -274,9 +279,10 @@ const String& AvatarCache::lastError() const { return lastError_; }
 
 bool AvatarCache::isCurrentAvatar(
     const String& filename, const FollowerProfiles& profiles) const {
+  const String fullPath =
+      filename.startsWith("/") ? filename : String("/avatars/") + filename;
   for (const auto& profile : profiles) {
-    if (filename == pathFor(profile.id) ||
-        filename.endsWith(pathFor(profile.id))) {
+    if (fullPath == pathFor(profile.id)) {
       return true;
     }
   }

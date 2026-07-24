@@ -6,6 +6,7 @@
 #include "github/github_client.h"
 #include "network/network_manager.h"
 #include "storage/avatar_cache.h"
+#include "storage/profile_store.h"
 #include "utils/retry_policy.h"
 
 class Application {
@@ -40,6 +41,7 @@ class Application {
   NetworkManager network_;
   GitHubClient github_;
   AvatarCache avatarCache_;
+  ProfileStore profileStore_;
   RetryPolicy retry_;
   FollowerProfiles profiles_;
 
