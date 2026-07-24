@@ -7,6 +7,8 @@
 #include "network/network_manager.h"
 #include "storage/avatar_cache.h"
 #include "storage/profile_store.h"
+#include "storage/settings_store.h"
+#include "touch/touch_manager.h"
 #include "utils/retry_policy.h"
 
 class Application {
@@ -21,6 +23,8 @@ class Application {
     OFFLINE_CACHE,
     ERROR_RETRY
   };
+  enum class Screen { Carousel, Qr, Settings, Statistics, Brightness,
+                      Calibration, ConfirmResetWifi, ConfirmClearAvatars };
 
   Application();
 
@@ -35,6 +39,11 @@ class Application {
   void startGitHubRefresh();
   void finishGitHubRefresh();
   void logState(State state) const;
+  void handleTouch();
+  void showSettings();
+  void beginCalibration();
+  void maybeBeginInitialCalibration();
+  void updateCalibration();
 
   State state_ = State::BOOT;
   DisplayManager display_;
@@ -42,6 +51,8 @@ class Application {
   GitHubClient github_;
   AvatarCache avatarCache_;
   ProfileStore profileStore_;
+  SettingsStore settingsStore_;
+  TouchManager touch_;
   RetryPolicy retry_;
   FollowerProfiles profiles_;
 
@@ -55,4 +66,10 @@ class Application {
   String retryTitle_;
   String retryDetail_;
   bool firstPageLimited_ = false;
+  String listEtag_;
+  Screen screen_ = Screen::Carousel;
+  uint32_t lastManualRefreshAtMs_ = 0;
+  uint8_t calibrationStep_ = 0;
+  TouchPoint calibrationRaw_[4];
+  bool calibrationPending_ = false;
 };

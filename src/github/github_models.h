@@ -13,6 +13,8 @@ struct FollowerProfile {
   String htmlUrl;
   String bio;
   uint32_t publicRepos = 0;
+  bool detailCached = false;
+  bool avatarChanged = false;
 
   String effectiveName() const { return name.isEmpty() ? login : name; }
   String shortUrl() const { return "github.com/" + login; }

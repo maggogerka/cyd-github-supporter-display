@@ -18,12 +18,24 @@ class DisplayManager {
   void showFollower(const FollowerProfile& profile, size_t index, size_t total,
                     bool connected, bool offline, time_t updatedAt,
                     AvatarCache& cache);
+  void showProvisioning(const String& accessPoint);
+  void showSettings(const String& ssid, int rssi, const String& ip,
+                    size_t followers, int rateRemaining, size_t fsUsed,
+                    size_t fsTotal, uint32_t heap, uint8_t brightness);
+  void showStatistics(size_t followers, size_t avatars, time_t updatedAt,
+                      int rssi, int httpStatus);
+  void showQr(const FollowerProfile& profile);
+  void showBrightness(uint8_t selected);
+  void showCalibration(uint8_t step);
+  void showConfirmation(const String& title, const String& detail);
+  void setBrightness(uint8_t percent);
 
  private:
   bool drawAvatar(const String& path, AvatarCache::Format format, int16_t x,
                   int16_t y);
   void drawHeader(bool connected, bool offline, size_t index, size_t total);
   void drawFooter(time_t updatedAt);
+  void drawNavButtons();
   String asciiSafe(const String& value, size_t maximumChars) const;
   String formatTime(time_t value) const;
 

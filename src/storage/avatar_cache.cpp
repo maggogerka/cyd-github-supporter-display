@@ -114,7 +114,7 @@ bool AvatarCache::download(const FollowerProfile& profile,
     return false;
   }
 
-  File output = LittleFS.open(temporary, FILE_WRITE);
+  File output = LittleFS.open(temporary, FILE_WRITE, true);
   if (!output) {
     setError("Could not create avatar cache file");
     http.end();
@@ -273,6 +273,36 @@ size_t AvatarCache::totalBytes() const {
   }
   directory.close();
   return total;
+}
+
+size_t AvatarCache::fileCount() const {
+  if (!available_) return 0;
+  size_t count = 0;
+  File directory = LittleFS.open("/avatars");
+  File entry;
+  while (directory && (entry = directory.openNextFile())) {
+    if (!entry.isDirectory() && !String(entry.name()).endsWith(".tmp")) ++count;
+    entry.close();
+  }
+  return count;
+}
+
+void AvatarCache::clear() {
+  if (!available_) return;
+  File directory = LittleFS.open("/avatars");
+  File entry;
+  while (directory && (entry = directory.openNextFile())) {
+    String path = entry.name();
+    if (!path.startsWith("/")) path = "/avatars/" + path;
+    entry.close();
+    LittleFS.remove(path);
+  }
+  Serial.println("[cache] Avatar cache cleared");
+}
+
+void AvatarCache::invalidate(uint64_t githubId) {
+  const String path = pathFor(githubId);
+  if (LittleFS.exists(path)) LittleFS.remove(path);
 }
 
 const String& AvatarCache::lastError() const { return lastError_; }

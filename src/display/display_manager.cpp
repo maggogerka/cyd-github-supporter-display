@@ -9,6 +9,8 @@
 #undef MOTOLONG
 #endif
 #include <PNGdec.h>
+#include <qrcode.h>
+#include <U8g2_for_TFT_eSPI.h>
 #include <time.h>
 
 #include "app_config.h"
@@ -24,6 +26,8 @@ JPEGDEC gJpeg;
 File gPngFile;
 File gJpegFile;
 uint16_t gPngLine[320];
+uint8_t gQrData[512];
+U8g2_for_TFT_eSPI gUtf8;
 
 int drawJpegBlock(JPEGDRAW* block) {
   if (gTft == nullptr || block->x >= config::kAvatarSize ||
@@ -120,6 +124,9 @@ bool DisplayManager::begin() {
   tft_.invertDisplay(true);
   delay(10);
   tft_.setSwapBytes(true);
+  gUtf8.begin(tft_);
+  ledcSetup(0, 5000, 8);
+  ledcAttachPin(cyd::kBacklight, 0);
 
   background_ = tft_.color565(13, 17, 23);
   surface_ = tft_.color565(22, 27, 34);
@@ -136,6 +143,11 @@ bool DisplayManager::begin() {
   return tft_.width() == cyd::kWidth && tft_.height() == cyd::kHeight;
 }
 
+void DisplayManager::setBrightness(uint8_t percent) {
+  percent = constrain(percent, 20, 100);
+  ledcWrite(0, static_cast<uint32_t>(percent) * 255 / 100);
+}
+
 void DisplayManager::showBoot() {
   tft_.fillScreen(background_);
   tft_.fillCircle(160, 69, 31, surface_);
@@ -147,7 +159,7 @@ void DisplayManager::showBoot() {
   tft_.setTextColor(blue_, background_);
   tft_.drawString("@maggogerka", 160, 184, 2);
   tft_.setTextColor(muted_, background_);
-  tft_.drawString("v0.1.0", 160, 218, 2);
+  tft_.drawString("v" + String(config::kFirmwareVersion), 160, 218, 2);
   tft_.setTextDatum(TL_DATUM);
 }
 
@@ -206,6 +218,7 @@ void DisplayManager::showEmpty(bool connected, time_t updatedAt) {
   tft_.drawString("github.com/maggogerka", 160, 181, 2);
   tft_.setTextDatum(TL_DATUM);
   drawFooter(updatedAt);
+  drawNavButtons();
 }
 
 void DisplayManager::showFollower(const FollowerProfile& profile, size_t index,
@@ -238,14 +251,170 @@ void DisplayManager::showFollower(const FollowerProfile& profile, size_t index,
   icons::drawHeart(tft_, 128, 145, 15, heart_);
   icons::drawHeart(tft_, 151, 149, 11, heart_);
   icons::drawHeart(tft_, 169, 145, 15, heart_);
-  tft_.setTextColor(text_, surface_);
-  tft_.drawString("THANK YOU FOR", 190, 140, 2);
-  tft_.drawString("FOLLOWING!", 190, 158, 2);
-  tft_.setTextDatum(MC_DATUM);
-  tft_.setTextColor(muted_, surface_);
-  tft_.drawString("Thank you for supporting my projects!", 160, 184, 2);
+  gUtf8.setFontMode(1);
+  gUtf8.setFontDirection(0);
+  gUtf8.setForegroundColor(text_);
+  gUtf8.setBackgroundColor(surface_);
+  gUtf8.setFont(u8g2_font_6x12_t_cyrillic);
+  gUtf8.drawUTF8(188, 151, "Спасибо за подписку!");
+  gUtf8.setForegroundColor(muted_);
+  gUtf8.drawUTF8(58, 187, "Спасибо за поддержку моих проектов!");
   tft_.setTextDatum(TL_DATUM);
   drawFooter(updatedAt);
+  drawNavButtons();
+}
+
+void DisplayManager::showProvisioning(const String& accessPoint) {
+  tft_.fillScreen(background_);
+  tft_.setTextDatum(MC_DATUM);
+  tft_.setTextColor(text_, background_);
+  tft_.drawString("Wi-Fi setup", 160, 38, 4);
+  tft_.setTextColor(blue_, background_);
+  tft_.drawString(accessPoint, 160, 88, 4);
+  tft_.setTextColor(text_, background_);
+  tft_.drawString("Connect with phone or computer", 160, 128, 2);
+  tft_.drawString("Open 192.168.4.1", 160, 154, 4);
+  tft_.setTextColor(muted_, background_);
+  tft_.drawString("Select Wi-Fi and enter its password", 160, 196, 2);
+  tft_.setTextDatum(TL_DATUM);
+}
+
+void DisplayManager::showSettings(const String& ssid, int rssi,
+                                  const String& ip, size_t followers,
+                                  int rateRemaining, size_t fsUsed,
+                                  size_t fsTotal, uint32_t heap,
+                                  uint8_t brightness) {
+  tft_.fillScreen(background_);
+  tft_.setTextColor(text_, background_);
+  tft_.drawString("Settings  v" + String(config::kFirmwareVersion), 10, 8, 4);
+  tft_.setTextColor(muted_, background_);
+  tft_.drawString(asciiSafe(ssid, 20) + "  " + String(rssi) + " dBm", 10, 39,
+                  2);
+  tft_.drawString(ip + "  Followers: " + String(followers), 10, 57, 2);
+  tft_.drawString("API: " + String(rateRemaining) + "  FS: " +
+                      String(fsUsed / 1024) + "/" + String(fsTotal / 1024) +
+                      "K  Heap: " + String(heap / 1024) + "K",
+                  10, 75, 2);
+  const char* labels[] = {"Refresh", "Brightness", "Statistics",
+                          "Calibrate", "Clear avatars", "Reset Wi-Fi"};
+  for (int i = 0; i < 6; ++i) {
+    const int x = (i % 2) * 155 + 7;
+    const int y = 101 + (i / 2) * 38;
+    tft_.fillRoundRect(x, y, 148, 31, 6, surface_);
+    tft_.setTextColor(i >= 4 ? heart_ : text_, surface_);
+    tft_.setTextDatum(MC_DATUM);
+    tft_.drawString(labels[i], x + 74, y + 15, 2);
+  }
+  tft_.setTextDatum(MC_DATUM);
+  tft_.setTextColor(blue_, background_);
+  tft_.drawString("< Back     Brightness " + String(brightness) + "%", 160,
+                  225, 2);
+  tft_.setTextDatum(TL_DATUM);
+}
+
+void DisplayManager::showStatistics(size_t followers, size_t avatars,
+                                    time_t updatedAt, int rssi,
+                                    int httpStatus) {
+  tft_.fillScreen(background_);
+  tft_.setTextDatum(MC_DATUM);
+  tft_.setTextColor(text_, background_);
+  tft_.drawString("@maggogerka statistics", 160, 28, 4);
+  tft_.setTextColor(blue_, background_);
+  tft_.drawString(String(followers), 80, 88, 4);
+  tft_.drawString(String(avatars), 240, 88, 4);
+  tft_.setTextColor(muted_, background_);
+  tft_.drawString("followers", 80, 118, 2);
+  tft_.drawString("avatars", 240, 118, 2);
+  tft_.setTextColor(text_, background_);
+  tft_.drawString("Wi-Fi " + String(rssi) + " dBm   HTTP " +
+                      String(httpStatus),
+                  160, 157, 2);
+  tft_.drawString("Updated " + formatTime(updatedAt), 160, 182, 2);
+  tft_.setTextColor(blue_, background_);
+  tft_.drawString("< Back", 160, 222, 2);
+  tft_.setTextDatum(TL_DATUM);
+}
+
+void DisplayManager::showQr(const FollowerProfile& profile) {
+  tft_.fillScreen(background_);
+  const String url = "https://github.com/" + profile.login;
+  QRCode qr;
+  qrcode_initText(&qr, gQrData, 5, ECC_LOW, url.c_str());
+  const int scale = min(3, 180 / qr.size);
+  const int size = qr.size * scale;
+  const int x0 = (320 - size) / 2;
+  const int y0 = 9;
+  tft_.fillRect(x0 - 6, y0 - 6, size + 12, size + 12, TFT_WHITE);
+  for (uint8_t y = 0; y < qr.size; ++y)
+    for (uint8_t x = 0; x < qr.size; ++x)
+      if (qrcode_getModule(&qr, x, y))
+        tft_.fillRect(x0 + x * scale, y0 + y * scale, scale, scale, TFT_BLACK);
+  tft_.setTextDatum(MC_DATUM);
+  tft_.setTextColor(blue_, background_);
+  tft_.drawString("@" + asciiSafe(profile.login, 32), 160, 205, 2);
+  tft_.setTextColor(text_, background_);
+  tft_.drawString("< Back", 160, 226, 2);
+  tft_.setTextDatum(TL_DATUM);
+}
+
+void DisplayManager::showBrightness(uint8_t selected) {
+  tft_.fillScreen(background_);
+  tft_.setTextDatum(MC_DATUM);
+  tft_.setTextColor(text_, background_);
+  tft_.drawString("Brightness", 160, 35, 4);
+  for (int i = 0; i < 5; ++i) {
+    const int x = 12 + i * 62;
+    const uint8_t value = config::kBrightnessLevels[i];
+    tft_.fillRoundRect(x, 92, 50, 55, 7,
+                       value == selected ? blue_ : surface_);
+    tft_.setTextColor(text_, value == selected ? blue_ : surface_);
+    tft_.drawString(String(value) + "%", x + 25, 119, 2);
+  }
+  tft_.setTextColor(blue_, background_);
+  tft_.drawString("< Back", 160, 210, 2);
+  tft_.setTextDatum(TL_DATUM);
+}
+
+void DisplayManager::showCalibration(uint8_t step) {
+  static constexpr int16_t points[4][2] = {{22, 22}, {297, 22},
+                                           {297, 217}, {22, 217}};
+  tft_.fillScreen(background_);
+  tft_.setTextDatum(MC_DATUM);
+  tft_.setTextColor(text_, background_);
+  tft_.drawString("Touch calibration", 160, 120, 2);
+  const uint8_t index = min<uint8_t>(step, 3);
+  tft_.drawCircle(points[index][0], points[index][1], 9, heart_);
+  tft_.drawLine(points[index][0] - 12, points[index][1],
+                points[index][0] + 12, points[index][1], heart_);
+  tft_.drawLine(points[index][0], points[index][1] - 12,
+                points[index][0], points[index][1] + 12, heart_);
+  tft_.setTextDatum(TL_DATUM);
+}
+
+void DisplayManager::showConfirmation(const String& title,
+                                      const String& detail) {
+  tft_.fillScreen(background_);
+  tft_.setTextDatum(MC_DATUM);
+  tft_.setTextColor(heart_, background_);
+  tft_.drawString(title, 160, 55, 4);
+  tft_.setTextColor(text_, background_);
+  tft_.drawString(asciiSafe(detail, 45), 160, 105, 2);
+  tft_.fillRoundRect(25, 155, 120, 45, 8, surface_);
+  tft_.fillRoundRect(175, 155, 120, 45, 8, heart_);
+  tft_.drawString("Cancel", 85, 177, 2);
+  tft_.setTextColor(background_, heart_);
+  tft_.drawString("Confirm", 235, 177, 2);
+  tft_.setTextDatum(TL_DATUM);
+}
+
+void DisplayManager::drawNavButtons() {
+  tft_.setTextColor(blue_, background_);
+  tft_.drawString("<", 2, 109, 4);
+  tft_.setTextDatum(TR_DATUM);
+  tft_.drawString(">", 318, 109, 4);
+  tft_.setTextDatum(TL_DATUM);
+  tft_.drawRoundRect(284, 2, 30, 26, 5, muted_);
+  tft_.drawString("*", 294, 7, 2);
 }
 
 bool DisplayManager::drawAvatar(const String& path, AvatarCache::Format format,

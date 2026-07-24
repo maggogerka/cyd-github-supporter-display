@@ -27,25 +27,45 @@ void GitHubClient::beginRefresh() {
   profiles_.clear();
   profiles_.reserve(config::kMaximumFollowers);
   profileIndex_ = 0;
+  page_ = 1;
   error_ = "";
   lastHttpStatus_ = 0;
   firstPageLimited_ = false;
   partialDetails_ = false;
+  listComplete_ = false;
+  notModified_ = false;
   state_ = State::LoadingList;
   Serial.printf("[github] Refresh started, free heap=%u\n",
                 ESP.getFreeHeap());
 }
 
+void GitHubClient::setListEtag(const String& etag) { listEtag_ = etag; }
+void GitHubClient::setCachedProfiles(const FollowerProfiles* profiles,
+                                    time_t updatedAt) {
+  cachedProfiles_ = profiles;
+  cachedProfilesUpdatedAt_ = updatedAt;
+}
+
 void GitHubClient::update() {
   if (state_ == State::LoadingList) {
     if (fetchFollowerList()) {
-      state_ =
-          profiles_.empty() ? State::Complete : State::LoadingProfiles;
+      if (notModified_) {
+        state_ = State::Complete;
+      } else if (listComplete_) {
+        state_ =
+            profiles_.empty() ? State::Complete : State::LoadingProfiles;
+      }
     }
     return;
   }
 
   if (state_ == State::LoadingProfiles) {
+    if (rateLimitRemaining_ >= 0 &&
+        rateLimitRemaining_ <= config::kLowRateLimitThreshold) {
+      partialDetails_ = profileIndex_ < profiles_.size();
+      state_ = State::Complete;
+      return;
+    }
     if (!fetchProfile(profileIndex_)) {
       // The anonymous API allows only 60 requests/hour. Preserve the complete
       // follower list and its summary fields when an individual detail request
@@ -87,8 +107,15 @@ bool GitHubClient::fetchFollowerList() {
 
   JsonDocument document;
   const String url = apiUrl("/users/" + String(config::kGitHubUser) +
-                            "/followers?per_page=100&page=1");
-  if (!getJson(url, document, filter)) {
+                            "/followers?per_page=100&page=" + String(page_));
+  const HttpResult result =
+      getJson(url, document, filter, page_ == 1 ? listEtag_ : "");
+  if (result == HttpResult::NotModified) {
+    notModified_ = true;
+    listComplete_ = true;
+    return true;
+  }
+  if (result != HttpResult::Ok) {
     return false;
   }
   if (!document.is<JsonArray>()) {
@@ -99,7 +126,7 @@ bool GitHubClient::fetchFollowerList() {
   JsonArray list = document.as<JsonArray>();
   const size_t accepted =
       core::limitedProfileCount(list.size(), config::kMaximumFollowers);
-  firstPageLimited_ = list.size() == 100;
+  const size_t pageItems = list.size();
   for (size_t i = 0; i < accepted; ++i) {
     JsonObject item = list[i];
     const char* login = item["login"] | "";
@@ -112,12 +139,36 @@ bool GitHubClient::fetchFollowerList() {
     profile.login = login;
     profile.avatarUrl = item["avatar_url"] | "";
     profile.htmlUrl = item["html_url"] | "";
+    if (cachedProfiles_ != nullptr &&
+        time(nullptr) - cachedProfilesUpdatedAt_ <
+            config::kProfileMaximumAgeSeconds) {
+      for (const auto& cached : *cachedProfiles_) {
+        if (cached.id != profile.id) continue;
+        profile.name = cached.name;
+        profile.bio = cached.bio;
+        profile.publicRepos = cached.publicRepos;
+        profile.avatarChanged =
+            !cached.avatarUrl.isEmpty() &&
+            cached.avatarUrl != profile.avatarUrl;
+        profile.detailCached = true;
+        break;
+      }
+    }
     profiles_.push_back(std::move(profile));
   }
 
-  Serial.printf("[github] Followers list: %u entries%s\n",
-                static_cast<unsigned>(profiles_.size()),
-                firstPageLimited_ ? " (first page limit reached)" : "");
+  Serial.printf("[github] Followers page %u: %u entries, total=%u\n",
+                static_cast<unsigned>(page_),
+                static_cast<unsigned>(pageItems),
+                static_cast<unsigned>(profiles_.size()));
+  const size_t next = core::nextPage(page_, pageItems, 100, profiles_.size(),
+                                     config::kMaximumFollowers);
+  if (next == 0) {
+    listComplete_ = true;
+    firstPageLimited_ = profiles_.size() >= config::kMaximumFollowers;
+  } else {
+    page_ = next;
+  }
   return true;
 }
 
@@ -137,7 +188,15 @@ bool GitHubClient::fetchProfile(size_t index) {
 
   JsonDocument document;
   FollowerProfile& profile = profiles_[index];
-  if (!getJson(apiUrl("/users/" + profile.login), document, filter)) {
+  if (profile.detailCached) {
+    Serial.printf("[github] Profile %u/%u cache hit: @%s\n",
+                  static_cast<unsigned>(index + 1),
+                  static_cast<unsigned>(profiles_.size()),
+                  profile.login.c_str());
+    return true;
+  }
+  if (getJson(apiUrl("/users/" + profile.login), document, filter) !=
+      HttpResult::Ok) {
     return false;
   }
   if (!document.is<JsonObject>()) {
@@ -163,8 +222,9 @@ bool GitHubClient::fetchProfile(size_t index) {
   return true;
 }
 
-bool GitHubClient::getJson(const String& url, JsonDocument& document,
-                           JsonDocument& filter) {
+GitHubClient::HttpResult GitHubClient::getJson(
+    const String& url, JsonDocument& document, JsonDocument& filter,
+    const String& etag) {
   Serial.printf("[github] GET %s, free heap=%u\n", url.c_str(),
                 ESP.getFreeHeap());
   WiFiClientSecure client;
@@ -176,14 +236,16 @@ bool GitHubClient::getJson(const String& url, JsonDocument& document,
   http.useHTTP10(true);
   if (!http.begin(client, url)) {
     fail("Could not initialize HTTPS request");
-    return false;
+    return HttpResult::Error;
   }
 
   http.addHeader("Accept", "application/vnd.github+json");
   http.addHeader("User-Agent", config::kUserAgent);
   http.addHeader("X-GitHub-Api-Version", config::kApiVersion);
-  const char* headerKeys[] = {"X-RateLimit-Remaining", "X-RateLimit-Reset"};
-  http.collectHeaders(headerKeys, 2);
+  if (!etag.isEmpty()) http.addHeader("If-None-Match", etag);
+  const char* headerKeys[] = {"X-RateLimit-Remaining", "X-RateLimit-Reset",
+                              "X-RateLimit-Limit", "ETag"};
+  http.collectHeaders(headerKeys, 4);
 
   lastHttpStatus_ = http.GET();
   const String remainingHeader = http.header("X-RateLimit-Remaining");
@@ -192,6 +254,14 @@ bool GitHubClient::getJson(const String& url, JsonDocument& document,
       remainingHeader.isEmpty() ? -1 : remainingHeader.toInt();
   rateLimitReset_ =
       resetHeader.isEmpty() ? 0 : static_cast<time_t>(resetHeader.toInt());
+  const String responseEtag = http.header("ETag");
+  if (!responseEtag.isEmpty() && page_ == 1) listEtag_ = responseEtag;
+
+  if (lastHttpStatus_ == HTTP_CODE_NOT_MODIFIED) {
+    http.end();
+    Serial.println("[github] HTTP 304, cached follower list is current");
+    return HttpResult::NotModified;
+  }
 
   if (lastHttpStatus_ != HTTP_CODE_OK) {
     String reason;
@@ -208,7 +278,7 @@ bool GitHubClient::getJson(const String& url, JsonDocument& document,
     }
     http.end();
     fail(reason);
-    return false;
+    return HttpResult::Error;
   }
 
   const DeserializationError jsonError = deserializeJson(
@@ -216,9 +286,9 @@ bool GitHubClient::getJson(const String& url, JsonDocument& document,
   http.end();
   if (jsonError) {
     fail("Invalid or incomplete GitHub JSON: " + String(jsonError.c_str()));
-    return false;
+    return HttpResult::Error;
   }
-  return true;
+  return HttpResult::Ok;
 }
 
 void GitHubClient::fail(const String& message) {
@@ -249,3 +319,5 @@ int GitHubClient::rateLimitRemaining() const { return rateLimitRemaining_; }
 time_t GitHubClient::rateLimitReset() const { return rateLimitReset_; }
 bool GitHubClient::firstPageLimited() const { return firstPageLimited_; }
 bool GitHubClient::partialDetails() const { return partialDetails_; }
+bool GitHubClient::notModified() const { return notModified_; }
+const String& GitHubClient::listEtag() const { return listEtag_; }

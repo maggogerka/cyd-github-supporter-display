@@ -17,6 +17,9 @@ class AvatarCache {
   String pathFor(uint64_t githubId) const;
   Format formatOf(const String& path) const;
   size_t totalBytes() const;
+  size_t fileCount() const;
+  void clear();
+  void invalidate(uint64_t githubId);
   const String& lastError() const;
 
  private:

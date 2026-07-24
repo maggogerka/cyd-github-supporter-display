@@ -10,6 +10,8 @@ class GitHubClient {
   enum class State { Idle, LoadingList, LoadingProfiles, Complete, Failed };
 
   void beginRefresh();
+  void setListEtag(const String& etag);
+  void setCachedProfiles(const FollowerProfiles* profiles, time_t updatedAt);
   void update();
   void reset();
 
@@ -27,21 +29,30 @@ class GitHubClient {
   time_t rateLimitReset() const;
   bool firstPageLimited() const;
   bool partialDetails() const;
+  bool notModified() const;
+  const String& listEtag() const;
 
  private:
   bool fetchFollowerList();
   bool fetchProfile(size_t index);
-  bool getJson(const String& url, JsonDocument& document,
-               JsonDocument& filter);
+  enum class HttpResult { Ok, NotModified, Error };
+  HttpResult getJson(const String& url, JsonDocument& document,
+                     JsonDocument& filter, const String& etag = "");
   void fail(const String& message);
 
   State state_ = State::Idle;
   FollowerProfiles profiles_;
   size_t profileIndex_ = 0;
+  size_t page_ = 1;
   String error_;
   int lastHttpStatus_ = 0;
   int rateLimitRemaining_ = -1;
   time_t rateLimitReset_ = 0;
   bool firstPageLimited_ = false;
   bool partialDetails_ = false;
+  bool listComplete_ = false;
+  bool notModified_ = false;
+  String listEtag_;
+  const FollowerProfiles* cachedProfiles_ = nullptr;
+  time_t cachedProfilesUpdatedAt_ = 0;
 };

@@ -5,7 +5,8 @@
 
 #include "app_config.h"
 
-bool ProfileStore::load(FollowerProfiles& profiles, time_t& updatedAt) {
+bool ProfileStore::load(FollowerProfiles& profiles, time_t& updatedAt,
+                        String& etag) {
   if (!LittleFS.exists(kPath)) {
     return false;
   }
@@ -20,6 +21,11 @@ bool ProfileStore::load(FollowerProfiles& profiles, time_t& updatedAt) {
   if (error || !document["profiles"].is<JsonArray>()) {
     Serial.printf("[cache] Stored profile list is invalid: %s\n",
                   error ? error.c_str() : "profiles array missing");
+    return false;
+  }
+  const uint32_t schema = document["schema"] | 0U;
+  if (schema != 0 && schema != config::kCacheSchemaVersion) {
+    Serial.println("[cache] Profile cache schema mismatch");
     return false;
   }
 
@@ -48,15 +54,19 @@ bool ProfileStore::load(FollowerProfiles& profiles, time_t& updatedAt) {
   }
 
   updatedAt = static_cast<time_t>(document["updated_at"] | 0LL);
+  etag = static_cast<const char*>(document["etag"] | "");
   profiles = std::move(loaded);
   Serial.printf("[cache] Restored %u follower profiles from LittleFS\n",
                 static_cast<unsigned>(profiles.size()));
   return true;
 }
 
-bool ProfileStore::save(const FollowerProfiles& profiles, time_t updatedAt) {
+bool ProfileStore::save(const FollowerProfiles& profiles, time_t updatedAt,
+                        const String& etag) {
   JsonDocument document;
+  document["schema"] = config::kCacheSchemaVersion;
   document["updated_at"] = static_cast<int64_t>(updatedAt);
+  document["etag"] = etag;
   JsonArray array = document["profiles"].to<JsonArray>();
   for (const FollowerProfile& profile : profiles) {
     JsonObject item = array.add<JsonObject>();
@@ -69,8 +79,8 @@ bool ProfileStore::save(const FollowerProfiles& profiles, time_t updatedAt) {
     item["public_repos"] = profile.publicRepos;
   }
 
-  LittleFS.remove(kTemporaryPath);
-  File output = LittleFS.open(kTemporaryPath, FILE_WRITE);
+  if (LittleFS.exists(kTemporaryPath)) LittleFS.remove(kTemporaryPath);
+  File output = LittleFS.open(kTemporaryPath, FILE_WRITE, true);
   if (!output) {
     Serial.println("[cache] WARNING: could not create profile cache");
     return false;

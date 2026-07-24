@@ -48,4 +48,33 @@ uint32_t retryDelay(uint8_t attempt, uint32_t initialMs,
       std::min<uint64_t>(scaled, static_cast<uint64_t>(maximumMs)));
 }
 
+int16_t mapTouch(int32_t raw, int32_t minimum, int32_t maximum,
+                 int16_t extent, bool inverted) {
+  if (maximum <= minimum || extent <= 1) return 0;
+  raw = std::max(minimum, std::min(maximum, raw));
+  int32_t value = (raw - minimum) * (extent - 1) / (maximum - minimum);
+  if (inverted) value = extent - 1 - value;
+  return static_cast<int16_t>(value);
+}
+
+size_t previousIndex(size_t current, size_t count) {
+  return count == 0 ? 0 : (current + count - 1) % count;
+}
+
+size_t nextIndex(size_t current, size_t count) {
+  return count == 0 ? 0 : (current + 1) % count;
+}
+
+bool cooldownReady(uint32_t now, uint32_t last, uint32_t cooldown) {
+  return last == 0 || static_cast<uint32_t>(now - last) >= cooldown;
+}
+
+size_t nextPage(size_t currentPage, size_t pageItems, size_t perPage,
+                size_t totalItems, size_t maximumItems) {
+  if (pageItems == 0 || pageItems < perPage || totalItems >= maximumItems) {
+    return 0;
+  }
+  return currentPage + 1;
+}
+
 }  // namespace core
