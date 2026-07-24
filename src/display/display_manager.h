@@ -26,7 +26,6 @@ class DisplayManager {
                       int rssi, int httpStatus);
   void showQr(const FollowerProfile& profile);
   void showBrightness(uint8_t selected);
-  void showCalibration(uint8_t step);
   void showConfirmation(const String& title, const String& detail);
   void setBrightness(uint8_t percent);
 

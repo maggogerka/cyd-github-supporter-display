@@ -4,8 +4,6 @@
 #include <SPI.h>
 #include <XPT2046_Touchscreen.h>
 
-#include "storage/settings_store.h"
-
 struct TouchPoint {
   int16_t x = 0;
   int16_t y = 0;
@@ -15,16 +13,14 @@ struct TouchPoint {
 class TouchManager {
  public:
   TouchManager();
-  bool begin(const TouchCalibration& calibration);
+  bool begin();
   bool poll(TouchPoint& point);
-  bool pollRaw(TouchPoint& point);
-  void setCalibration(const TouchCalibration& calibration);
   bool available() const;
 
  private:
+  bool pollRaw(TouchPoint& point);
   SPIClass spi_;
   XPT2046_Touchscreen touch_;
-  TouchCalibration calibration_;
   bool available_ = false;
   bool wasPressed_ = false;
   bool trackingPress_ = false;

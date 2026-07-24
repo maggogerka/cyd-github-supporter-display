@@ -2,7 +2,6 @@
 
 #include <time.h>
 #include <LittleFS.h>
-#include <algorithm>
 
 #include "app_config.h"
 #include "core_logic.h"
@@ -31,9 +30,7 @@ void Application::begin() {
 
   settingsStore_.begin();
   display_.setBrightness(settingsStore_.brightness());
-  const TouchCalibration calibration = settingsStore_.touchCalibration();
-  calibrationPending_ = !calibration.valid;
-  touch_.begin(calibration);
+  touch_.begin();
   if (avatarCache_.begin()) {
     profileStore_.load(profiles_, lastUpdatedAt_, listEtag_);
   }
@@ -59,11 +56,7 @@ void Application::begin() {
 
 void Application::update() {
   network_.update();
-  if (screen_ == Screen::Calibration) {
-    updateCalibration();
-  } else {
-    handleTouch();
-  }
+  handleTouch();
 
   switch (state_) {
     case State::BOOT:
@@ -180,7 +173,6 @@ void Application::enterRetry(const String& title, const String& detail) {
   if (!profiles_.empty()) {
     transition(State::OFFLINE_CACHE);
     showCurrentFollower(true);
-    maybeBeginInitialCalibration();
   } else {
     transition(State::ERROR_RETRY);
     display_.showError(retryTitle_, retryDetail_, delayMs / 1000);
@@ -240,7 +232,6 @@ void Application::finishGitHubRefresh() {
     retry_.reset();
     transition(State::CAROUSEL);
     showCurrentFollower(false);
-    maybeBeginInitialCalibration();
     return;
   }
   firstPageLimited_ = github_.firstPageLimited();
@@ -268,7 +259,6 @@ void Application::finishGitHubRefresh() {
       static_cast<unsigned>(avatarCache_.totalBytes()), ESP.getFreeHeap());
   transition(State::CAROUSEL);
   showCurrentFollower(false);
-  maybeBeginInitialCalibration();
 }
 
 void Application::handleTouch() {
@@ -347,8 +337,9 @@ void Application::handleTouch() {
         display_.showStatistics(profiles_.size(), avatarCache_.fileCount(),
                                 lastUpdatedAt_, WiFi.RSSI(),
                                 github_.lastHttpStatus());
-      } else {
-        beginCalibration();
+      } else if (!profiles_.empty()) {
+        screen_ = Screen::Qr;
+        display_.showQr(profiles_[followerIndex_]);
       }
     } else if (point.y >= 177) {
       if (point.x < 160) {
@@ -371,64 +362,6 @@ void Application::showSettings() {
                         profiles_.size(), github_.rateLimitRemaining(),
                         LittleFS.usedBytes(), LittleFS.totalBytes(),
                         ESP.getFreeHeap(), settingsStore_.brightness());
-}
-
-void Application::beginCalibration() {
-  calibrationPending_ = false;
-  screen_ = Screen::Calibration;
-  calibrationStep_ = 0;
-  display_.showCalibration(calibrationStep_);
-}
-
-void Application::updateCalibration() {
-  TouchPoint raw;
-  if (!touch_.pollRaw(raw)) return;
-  calibrationRaw_[calibrationStep_] = raw;
-  ++calibrationStep_;
-  if (calibrationStep_ < 4) {
-    display_.showCalibration(calibrationStep_);
-    return;
-  }
-  TouchCalibration calibration;
-  const int horizontalDx =
-      abs(calibrationRaw_[1].x - calibrationRaw_[0].x);
-  const int horizontalDy =
-      abs(calibrationRaw_[1].y - calibrationRaw_[0].y);
-  calibration.swapXY = horizontalDy > horizontalDx;
-  int16_t a[4];
-  int16_t b[4];
-  for (int i = 0; i < 4; ++i) {
-    a[i] = calibration.swapXY ? calibrationRaw_[i].y : calibrationRaw_[i].x;
-    b[i] = calibration.swapXY ? calibrationRaw_[i].x : calibrationRaw_[i].y;
-  }
-  const bool geometryValid =
-      abs(a[1] - a[0]) > 1500 && abs(a[2] - a[3]) > 1500 &&
-      abs(b[3] - b[0]) > 1200 && abs(b[2] - b[1]) > 1200 &&
-      abs(a[3] - a[0]) < 800 && abs(a[2] - a[1]) < 800 &&
-      abs(b[1] - b[0]) < 800 && abs(b[2] - b[3]) < 800;
-  if (!geometryValid) {
-    Serial.println(
-        "[touch] Calibration rejected: corner geometry is not plausible");
-    calibrationStep_ = 0;
-    display_.showCalibration(calibrationStep_);
-    return;
-  }
-  calibration.minX = *std::min_element(a, a + 4);
-  calibration.maxX = *std::max_element(a, a + 4);
-  calibration.minY = *std::min_element(b, b + 4);
-  calibration.maxY = *std::max_element(b, b + 4);
-  calibration.invertX = (a[0] + a[3]) > (a[1] + a[2]);
-  calibration.invertY = (b[0] + b[1]) > (b[2] + b[3]);
-  calibration.valid = true;
-  settingsStore_.setTouchCalibration(calibration);
-  touch_.setCalibration(calibration);
-  showSettings();
-}
-
-void Application::maybeBeginInitialCalibration() {
-  if (!calibrationPending_) return;
-  Serial.println("[touch] No saved calibration; starting first-run wizard");
-  beginCalibration();
 }
 
 void Application::logState(State state) const {

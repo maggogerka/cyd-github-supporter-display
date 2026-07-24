@@ -8,15 +8,13 @@
 TouchManager::TouchManager()
     : spi_(VSPI), touch_(config::kTouchCs, config::kTouchIrq) {}
 
-bool TouchManager::begin(const TouchCalibration& calibration) {
-  calibration_ = calibration;
+bool TouchManager::begin() {
   spi_.begin(config::kTouchSclk, config::kTouchMiso, config::kTouchMosi,
              config::kTouchCs);
   available_ = touch_.begin(spi_);
   touch_.setRotation(0);
-  Serial.printf("[touch] XPT2046 %s, calibration=%s\n",
-                available_ ? "ready" : "unavailable",
-                calibration_.valid ? "stored" : "default");
+  Serial.printf("[touch] XPT2046 %s, fixed CYD mapping\n",
+                available_ ? "ready" : "unavailable");
   return available_;
 }
 
@@ -25,11 +23,9 @@ bool TouchManager::poll(TouchPoint& point) {
   if (!pollRaw(raw)) return false;
   int32_t a = raw.x;
   int32_t b = raw.y;
-  if (calibration_.swapXY) std::swap(a, b);
-  point.x = core::mapTouch(a, calibration_.minX, calibration_.maxX, 320,
-                           calibration_.invertX);
-  point.y = core::mapTouch(b, calibration_.minY, calibration_.maxY, 240,
-                           calibration_.invertY);
+  std::swap(a, b);
+  point.x = core::mapTouch(a, 240, 3800, 320, false);
+  point.y = core::mapTouch(b, 240, 3800, 240, true);
   point.pressure = raw.pressure;
   Serial.printf("[touch] x=%d y=%d z=%u\n", point.x, point.y, point.pressure);
   return true;
@@ -72,10 +68,6 @@ bool TouchManager::pollRaw(TouchPoint& point) {
   point.y = raw.y;
   point.pressure = raw.z;
   return true;
-}
-
-void TouchManager::setCalibration(const TouchCalibration& calibration) {
-  calibration_ = calibration;
 }
 
 bool TouchManager::available() const { return available_; }

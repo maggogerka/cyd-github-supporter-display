@@ -24,7 +24,7 @@ class Application {
     ERROR_RETRY
   };
   enum class Screen { Carousel, Qr, Settings, Statistics, Brightness,
-                      Calibration, ConfirmResetWifi, ConfirmClearAvatars };
+                      ConfirmResetWifi, ConfirmClearAvatars };
 
   Application();
 
@@ -41,9 +41,6 @@ class Application {
   void logState(State state) const;
   void handleTouch();
   void showSettings();
-  void beginCalibration();
-  void maybeBeginInitialCalibration();
-  void updateCalibration();
 
   State state_ = State::BOOT;
   DisplayManager display_;
@@ -69,7 +66,4 @@ class Application {
   String listEtag_;
   Screen screen_ = Screen::Carousel;
   uint32_t lastManualRefreshAtMs_ = 0;
-  uint8_t calibrationStep_ = 0;
-  TouchPoint calibrationRaw_[4];
-  bool calibrationPending_ = false;
 };

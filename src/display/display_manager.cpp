@@ -10,7 +10,6 @@
 #endif
 #include <PNGdec.h>
 #include <qrcode.h>
-#include <U8g2_for_TFT_eSPI.h>
 #include <time.h>
 
 #include "app_config.h"
@@ -27,7 +26,6 @@ File gPngFile;
 File gJpegFile;
 uint16_t gPngLine[320];
 uint8_t gQrData[512];
-U8g2_for_TFT_eSPI gUtf8;
 
 int drawJpegBlock(JPEGDRAW* block) {
   if (gTft == nullptr || block->x >= config::kAvatarSize ||
@@ -124,7 +122,6 @@ bool DisplayManager::begin() {
   tft_.invertDisplay(true);
   delay(10);
   tft_.setSwapBytes(true);
-  gUtf8.begin(tft_);
   ledcSetup(0, 5000, 8);
   ledcAttachPin(cyd::kBacklight, 0);
 
@@ -251,14 +248,12 @@ void DisplayManager::showFollower(const FollowerProfile& profile, size_t index,
   icons::drawHeart(tft_, 128, 145, 15, heart_);
   icons::drawHeart(tft_, 151, 149, 11, heart_);
   icons::drawHeart(tft_, 169, 145, 15, heart_);
-  gUtf8.setFontMode(1);
-  gUtf8.setFontDirection(0);
-  gUtf8.setForegroundColor(text_);
-  gUtf8.setBackgroundColor(surface_);
-  gUtf8.setFont(u8g2_font_6x12_t_cyrillic);
-  gUtf8.drawUTF8(188, 151, "Спасибо за подписку!");
-  gUtf8.setForegroundColor(muted_);
-  gUtf8.drawUTF8(58, 187, "Спасибо за поддержку моих проектов!");
+  tft_.setTextColor(text_, surface_);
+  tft_.drawString("THANK YOU FOR", 190, 140, 2);
+  tft_.drawString("FOLLOWING!", 190, 158, 2);
+  tft_.setTextDatum(MC_DATUM);
+  tft_.setTextColor(muted_, surface_);
+  tft_.drawString("Thank you for supporting my projects!", 160, 184, 2);
   tft_.setTextDatum(TL_DATUM);
   drawFooter(updatedAt);
   drawNavButtons();
@@ -296,7 +291,7 @@ void DisplayManager::showSettings(const String& ssid, int rssi,
                       "K  Heap: " + String(heap / 1024) + "K",
                   10, 75, 2);
   const char* labels[] = {"Refresh", "Brightness", "Statistics",
-                          "Calibrate", "Clear avatars", "Reset Wi-Fi"};
+                          "Profile QR", "Clear avatars", "Reset Wi-Fi"};
   for (int i = 0; i < 6; ++i) {
     const int x = (i % 2) * 155 + 7;
     const int y = 101 + (i / 2) * 38;
@@ -372,22 +367,6 @@ void DisplayManager::showBrightness(uint8_t selected) {
   }
   tft_.setTextColor(blue_, background_);
   tft_.drawString("< Back", 160, 210, 2);
-  tft_.setTextDatum(TL_DATUM);
-}
-
-void DisplayManager::showCalibration(uint8_t step) {
-  static constexpr int16_t points[4][2] = {{22, 22}, {297, 22},
-                                           {297, 217}, {22, 217}};
-  tft_.fillScreen(background_);
-  tft_.setTextDatum(MC_DATUM);
-  tft_.setTextColor(text_, background_);
-  tft_.drawString("Touch calibration", 160, 120, 2);
-  const uint8_t index = min<uint8_t>(step, 3);
-  tft_.drawCircle(points[index][0], points[index][1], 9, heart_);
-  tft_.drawLine(points[index][0] - 12, points[index][1],
-                points[index][0] + 12, points[index][1], heart_);
-  tft_.drawLine(points[index][0], points[index][1] - 12,
-                points[index][0], points[index][1] + 12, heart_);
   tft_.setTextDatum(TL_DATUM);
 }
 

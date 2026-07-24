@@ -33,7 +33,6 @@ inline constexpr uint8_t kBrightnessLevels[] = {20, 40, 60, 80, 100};
 inline constexpr uint8_t kDefaultBrightness = 80;
 inline constexpr uint8_t kLowRateLimitThreshold = 5;
 inline constexpr uint32_t kCacheSchemaVersion = 2;
-inline constexpr uint8_t kTouchCalibrationVersion = 2;
 inline constexpr uint8_t kTouchSclk = 25;
 inline constexpr uint8_t kTouchMiso = 39;
 inline constexpr uint8_t kTouchMosi = 32;

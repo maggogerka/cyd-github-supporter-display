@@ -1,138 +1,161 @@
-# GitHub Supporter Display v0.2.0
+# GitHub Supporter Display
 
-Автономный настольный информер для **Cheap Yellow Display ESP32-2432S028R**. Он получает всех публичных followers профиля [@maggogerka](https://github.com/maggogerka), сохраняет их в LittleFS и показывает карусель карточек благодарности. VPS, отдельный сервер, GitHub PAT, microSD, корпус и подставка не нужны.
+An ESP32-2432S028R (Cheap Yellow Display) dashboard that retrieves the public
+followers of a GitHub account and presents them as a rotating set of thank-you
+cards. The firmware runs entirely on the board and keeps a local cache for
+offline operation.
 
-![Работающий GitHub Supporter Display на CYD](docs/images/cyd-github-supporter-display.jpg)
+![GitHub Supporter Display running on an ESP32-2432S028R](docs/images/cyd-github-supporter-display.jpg)
 
-## Возможности
+## Features
 
-- экран 2,8″, 320×240 landscape, ILI9341_2 и корректная полярность цветов этой ревизии CYD;
-- captive portal `CYD-GitHub-XXXX`: сеть настраивается без изменения исходников и сохраняется ESP32 в NVS;
-- XPT2046 на отдельной SPI-шине, фильтрация касаний и мастер калибровки;
-- Previous/Next, ручной Refresh с cooldown, Settings, Statistics, Brightness и локальный QR-код follower;
-- яркость 20/40/60/80/100% через PWM GPIO21 с сохранением в NVS;
-- pagination GitHub followers до безопасного внутреннего лимита;
-- ETag/`If-None-Match`, HTTP 304 и ожидание `X-RateLimit-Reset`;
-- подробный профиль запрашивается только пока остаётся безопасный запас API;
-- атомарный versioned cache профилей и JPEG/PNG-аватаров в LittleFS;
-- offline startup: сохранённая карусель появляется до подключения Wi‑Fi;
-- безопасный TLS с root CA и синхронизацией времени NTP;
-- локальная поддержка 16-bit PNG без стороннего сервиса изображений;
-- CI собирает secure firmware, проверяет отсутствие secrets и запускает native tests.
+- 320×240 landscape interface for the ILI9341-based CYD
+- XPT2046 touch input with noise filtering and fixed mapping for the target board
+- previous and next navigation, manual refresh, settings, statistics, and QR view
+- five persistent backlight levels controlled through PWM
+- Wi-Fi setup through the `CYD-GitHub-XXXX` captive portal
+- GitHub follower pagination with a bounded in-memory profile list
+- conditional requests through `ETag` and `If-None-Match`
+- GitHub rate-limit tracking and delayed retries
+- versioned, atomic profile storage in LittleFS
+- cached JPEG, PNG, and 16-bit PNG avatars
+- cached cards available during startup and network outages
+- certificate-validated HTTPS after NTP time synchronization
+- PlatformIO build and native logic tests in GitHub Actions
 
-## Быстрый запуск
+## Hardware
 
-1. Подключите CYD USB-кабелем данных.
-2. Определите порт: `pio device list`.
-3. Соберите: `pio run -e cyd`.
-4. Прошейте: `pio run -e cyd -t upload --upload-port COMX`.
-5. Откройте журнал: `pio device monitor --port COMX --baud 115200`.
-6. Если сети ещё нет, подключитесь телефоном к `CYD-GitHub-XXXX`.
-7. Откройте `192.168.4.1`, выберите Wi‑Fi и введите пароль.
-8. Дождитесь синхронизации и карусели.
+- ESP32-2432S028R with a 2.8-inch 320×240 display
+- USB data cable
+- 2.4 GHz Wi-Fi network
 
-Пароль Wi‑Fi хранится только в NVS устройства и никогда не выводится в Serial. Локальный `include/secrets.h` поддерживается исключительно для однократной миграции существующей установки v0.1.0 и игнорируется Git.
+No server, microSD card, or GitHub personal access token is required.
 
-## Управление
+## Pin Configuration
 
-- край слева/справа карточки — Previous/Next;
-- карточка/ссылка — QR-код `https://github.com/{login}`;
-- кнопка `*` справа сверху — Settings;
-- верхняя строка — Statistics;
-- Settings → Refresh, Brightness, Statistics, Calibrate, Clear avatars, Reset Wi‑Fi;
-- опасные действия требуют подтверждения;
-- после ручного переключения 10-секундный таймер карусели начинается заново.
+| Function | GPIO |
+|---|---:|
+| TFT MISO / MOSI / SCLK | 12 / 13 / 14 |
+| TFT CS / DC / RST | 15 / 2 / -1 |
+| Backlight | 21 |
+| Touch SCLK / MISO / MOSI | 25 / 39 / 32 |
+| Touch CS / IRQ | 33 / 36 |
 
-### Калибровка touch
+The display uses HSPI. The touch controller uses a separate VSPI bus.
 
-При первом запуске без сохранённых данных мастер открывается автоматически. Последовательно нажмите четыре мишени в углах. Повторно его можно открыть через Settings → Calibrate. Прошивка проверяет геометрию точек, определяет swap/invert, сохраняет min/max в NVS и сразу применяет результат. При неисправном сенсоре автоматическая карусель продолжает работать.
+## Build and Upload
 
-### Смена Wi‑Fi
+Install [PlatformIO](https://platformio.org/), connect the board, and run:
 
-Settings → Reset Wi‑Fi → Confirm удаляет только сетевые credentials и перезапускает setup mode. Профили и аватары остаются. Чтобы принудительно открыть портал, удерживайте кнопку `BOOT` во время запуска устройства.
-
-## Архитектура
-
-```text
-Application
-├── NetworkManager + WiFiManager (NVS/captive portal/NTP)
-├── GitHubClient (pagination/ETag/rate limit/TLS)
-├── ProfileStore + AvatarCache (atomic LittleFS/offline)
-├── TouchManager + SettingsStore (XPT2046/Preferences)
-└── DisplayManager (carousel/QR/settings/statistics/brightness)
+```powershell
+pio run -e cyd
+pio run -e cyd -t upload --upload-port COMX
+pio device monitor --port COMX --baud 115200
 ```
 
-Основной цикл не создаёт дополнительных FreeRTOS tasks. Сетевые данные ограничены `kMaximumFollowers`, JSON фильтруется, изображения декодируются по одному, а крупные decoder buffers не размещаются в стеке.
+Replace `COMX` with the serial port assigned to the board.
 
-## GitHub API и rate limit
+The default upload port in `platformio.ini` is only a convenience and can be
+overridden on the command line.
 
-Используются публичные endpoints:
+## First-Time Wi-Fi Setup
+
+1. Power on the board.
+2. Connect a phone or computer to `CYD-GitHub-XXXX`.
+3. Open `http://192.168.4.1`.
+4. Select a 2.4 GHz Wi-Fi network and enter its password.
+5. Wait for the display to synchronize its clock and load GitHub data.
+
+The access-point suffix is derived from the ESP32 chip ID. Wi-Fi credentials
+are stored in the ESP32 NVS partition and are never printed to the serial log.
+
+Hold the `BOOT` button while the board starts to force the setup portal even
+when credentials have already been saved.
+
+## Touch Controls
+
+- tap the left or right edge to show the previous or next follower
+- tap the follower card to display its local QR code
+- tap the top status row to open statistics
+- tap `*` in the top-right corner to open settings
+- use Settings for Refresh, Brightness, Statistics, Profile QR, Clear avatars,
+  and Reset Wi-Fi
+
+Destructive settings require confirmation. The touch input uses pressure,
+stability, release, and debounce checks to reject electrical noise and repeated
+events.
+
+## GitHub API Behavior
+
+The firmware uses these public REST endpoints:
 
 ```text
-GET /users/maggogerka/followers?per_page=100&page=N
+GET /users/{account}/followers?per_page=100&page=N
 GET /users/{login}
 ```
 
-PAT не нужен. Первая страница использует сохранённый ETag. При 304 cache не перезаписывается. При низком `X-RateLimit-Remaining` дополнительные details-запросы прекращаются; при нуле следующая попытка назначается после `X-RateLimit-Reset`, а экран продолжает показывать offline cache.
+Every request includes `Accept`, `User-Agent`, and `X-GitHub-Api-Version`
+headers. The first followers page also sends the stored `ETag` through
+`If-None-Match`. A `304 Not Modified` response keeps the current local data and
+avoids unnecessary profile requests.
 
-## LittleFS
+Unauthenticated requests have a limited hourly quota. The firmware reads
+`X-RateLimit-Remaining` and `X-RateLimit-Reset`, stops optional detail requests
+before the quota is exhausted, and continues to display cached cards while
+waiting to retry.
 
-Раздел LittleFS — `0x1F0000` (1 966 KiB). В нём находятся `/profiles.json` со schema version/ETag и `/avatars/{numeric-id}.img`. Запись профилей выполняется через temporary file + rename. Аватары ограничены по размеру, проверяются по сигнатуре, orphan-файлы удаляются. Clear avatars не затрагивает профили и Wi‑Fi.
+The account shown by the display is configured through `kGitHubUser` in
+`include/app_config.h`.
 
-## Аппаратная конфигурация
+## Storage
 
-| Сигнал | GPIO |
-|---|---:|
-| TFT MISO/MOSI/SCLK | 12 / 13 / 14 |
-| TFT CS/DC/RST | 15 / 2 / -1 |
-| Backlight | 21 |
-| Touch SCLK/MISO/MOSI | 25 / 39 / 32 |
-| Touch CS/IRQ | 33 / 36 |
+The custom partition table provides:
 
-TFT работает через HSPI, touch — через отдельный VSPI. PSRAM и microSD не используются.
-
-## Разделы flash и OTA
-
-| Раздел | Offset | Размер |
+| Partition | Offset | Size |
 |---|---:|---:|
 | NVS | `0x9000` | 20 KiB |
 | OTA metadata | `0xE000` | 8 KiB |
-| Application (factory) | `0x10000` | 1 984 KiB |
-| LittleFS | `0x200000` | 1 984 KiB |
+| Application | `0x10000` | 1,984 KiB |
+| LittleFS | `0x200000` | 1,984 KiB |
 | Core dump | `0x3F0000` | 64 KiB |
 
-OTA в v0.2.0 намеренно не включена. Firmware занимает около 1,25 МБ; две application slots с безопасным запасом вместе с LittleFS 1,94 МБ не помещаются в 4 МБ. Уменьшать offline avatar cache ради формального OTA нельзя. Обновление выполняется по USB.
+LittleFS stores the versioned profile document at `/profiles.json` and avatars
+under `/avatars/{github-id}.img`. Profile updates use a temporary file followed
+by a rename. Stale and orphaned avatar files are pruned automatically.
 
-## Bruce
+## OTA
 
-Прошивка заменяет Bruce. Для восстановления загрузите официальный Bruce binary/web installer. Это также заменит GitHub Supporter Display; LittleFS может потребовать повторной инициализации.
+OTA is not enabled in v0.2.0. Two safely sized application slots and the current
+offline avatar cache do not fit together in the 4 MB flash layout. Firmware
+updates are performed over USB.
 
-## Устранение неполадок
+## Troubleshooting
 
-| Симптом | Решение |
+| Symptom | Suggested action |
 |---|---|
-| Видимый цветовой негатив | для проверенной платы требуется `TFT_INVERSION_ON`; настройка уже в `platformio.ini` |
-| Нет Wi‑Fi | подключитесь к `CYD-GitHub-XXXX` и откройте `192.168.4.1` |
-| HTTP 403/429 | устройство показывает cache и ждёт официальный reset лимита |
-| Touch промахивается | Settings → Calibrate |
-| Аватар-placeholder | неизвестный формат, TLS/redirect, лимит файла или LittleFS |
-| Upload не начинается | проверьте COM, data-кабель; при необходимости удерживайте BOOT на `Connecting...` |
+| Colors appear inverted | Keep `TFT_INVERSION_ON` enabled for the supported CYD revision |
+| Wi-Fi setup does not appear | Hold `BOOT` during startup and connect to `CYD-GitHub-XXXX` |
+| GitHub returns HTTP 403 or 429 | Leave the device running; it will use its cache and retry after the reported rate-limit reset |
+| An avatar is unavailable | Check network access and LittleFS capacity; the card will use a generated placeholder |
+| Upload cannot connect | Verify the serial port and USB data cable; hold `BOOT` while PlatformIO displays `Connecting...` if required |
 
-## Безопасность
+## Security
 
-- production build не использует `setInsecure()`;
-- Wi‑Fi password, PAT и приватные ключи не входят в репозиторий;
-- `include/secrets.h` запрещён CI;
-- диагностический `CYD_ALLOW_INSECURE_TLS` выключен по умолчанию;
-- captive portal активируется только при отсутствии/сбросе credentials и имеет ограниченное время работы.
+- production builds validate the GitHub TLS certificate chain
+- no Wi-Fi password, access token, or private key is committed
+- CI rejects a committed `include/secrets.h`
+- the optional insecure TLS build flag is disabled by default
+- the captive portal runs only during setup or an explicitly requested reset
 
-## Ограничения
+## Limitations
 
-- без PAT анонимный GitHub API имеет небольшой общий лимит;
-- RAM/flash классического ESP32 требуют ограничения числа followers и размера avatar cache;
-- system emoji не используются; интерфейс рисует собственные иконки;
-- корпус, подставка, microSD, VPS и OTA не входят в проект.
+- the unauthenticated GitHub REST API has a shared per-IP rate limit
+- the number of followers and avatar cache size are bounded for ESP32 memory
+- the fixed touch mapping targets the ESP32-2432S028R board layout listed above
+- OTA, external servers, and microSD storage are outside the v0.2.0 scope
 
-## Лицензия
+## License
 
-Код проекта распространяется по [MIT License](LICENSE). Локальная модификация PNGdec сохраняет исходную Apache-2.0 лицензию в `lib/PNGdec16/LICENSE`.
+The project is available under the [MIT License](LICENSE). The local PNGdec
+modification retains its original Apache-2.0 license in
+`lib/PNGdec16/LICENSE`.
