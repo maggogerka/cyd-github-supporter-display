@@ -24,3 +24,9 @@ jobs:
         run: pio run -e cyd
       - name: Run host-side tests
         run: pio test -e native
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyd-github-supporter-display-${{ github.sha }}
+          path: .pio/build/cyd/firmware.bin
+          if-no-files-found: error
