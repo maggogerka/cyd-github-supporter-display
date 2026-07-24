@@ -115,6 +115,11 @@ bool DisplayManager::begin() {
   digitalWrite(cyd::kBacklight, LOW);
   tft_.init();
   tft_.setRotation(cyd::kRotation);
+  // Display inversion is controller state and can survive a warm reboot from
+  // other firmware (for example Bruce). Always restore the normal ILI9341
+  // color mode before drawing this application's palette.
+  tft_.invertDisplay(false);
+  delay(10);
   tft_.setSwapBytes(true);
 
   background_ = tft_.color565(13, 17, 23);
@@ -235,7 +240,8 @@ void DisplayManager::showFollower(const FollowerProfile& profile, size_t index,
   icons::drawHeart(tft_, 151, 149, 11, heart_);
   icons::drawHeart(tft_, 169, 145, 15, heart_);
   tft_.setTextColor(text_, surface_);
-  tft_.drawString("THANK YOU FOR FOLLOWING!", 190, 148, 2);
+  tft_.drawString("THANK YOU FOR", 190, 140, 2);
+  tft_.drawString("FOLLOWING!", 190, 158, 2);
   tft_.setTextDatum(MC_DATUM);
   tft_.setTextColor(muted_, surface_);
   tft_.drawString("Thank you for supporting my projects!", 160, 184, 2);
