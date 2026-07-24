@@ -2,7 +2,7 @@
 
 Настольный информер для классического **Cheap Yellow Display ESP32-2432S028R**. Устройство подключается к Wi‑Fi, получает публичный список подписчиков [@maggogerka](https://github.com/maggogerka) через GitHub REST API и непрерывно показывает карточки благодарности с аватарами.
 
-![Место для фотографии устройства](docs/device-placeholder.svg)
+![Работающий GitHub Supporter Display на CYD](docs/images/cyd-github-supporter-display.jpg)
 
 > Версия v0.1.0 заменяет находящуюся на плате прошивку, включая Bruce. Вернуть Bruce можно обычной повторной прошивкой официального бинарника/веб‑инсталлятора Bruce.
 
