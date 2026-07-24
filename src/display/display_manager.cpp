@@ -115,10 +115,9 @@ bool DisplayManager::begin() {
   digitalWrite(cyd::kBacklight, LOW);
   tft_.init();
   tft_.setRotation(cyd::kRotation);
-  // Display inversion is controller state and can survive a warm reboot from
-  // other firmware (for example Bruce). Always restore the normal ILI9341
-  // color mode before drawing this application's palette.
-  tft_.invertDisplay(false);
+  // This CYD panel revision has inverted physical polarity: INVON produces
+  // normal visible colors, while INVOFF produces a photographic negative.
+  tft_.invertDisplay(true);
   delay(10);
   tft_.setSwapBytes(true);
 
